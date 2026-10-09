@@ -1558,7 +1558,12 @@ impl World {
         let player_count = players.len();
         let players_cache: Vec<_> = players
             .par_iter()
-            .map(|player| {
+            .filter_map(|player| {
+                let transition = player.respawn_transition.try_read().ok()?;
+                if player.world().uuid != self.uuid {
+                    return None;
+                }
+                let generation = *transition;
                 let entity = player.get_entity();
                 let pos = entity.pos.load();
                 let bb = entity.bounding_box.load().expand(1.0, 0.5, 1.0);
@@ -1566,7 +1571,7 @@ impl World {
                     get_section_cord(pos.x.floor() as i32),
                     get_section_cord(pos.z.floor() as i32),
                 );
-                (player, pos, bb, chunk_pos)
+                Some((player, pos, bb, chunk_pos, generation))
             })
             .collect();
 
@@ -1620,7 +1625,7 @@ impl World {
                     let entity_pos = entity_inner.pos.load();
                     let entity_bb = entity_inner.bounding_box.load();
 
-                    for (player, player_pos, player_bb, player_chunk) in &players_cache {
+                    for (player, player_pos, player_bb, player_chunk, generation) in &players_cache {
                         if (player_chunk.x - entity_chunk.x).abs() <= 1
                             && (player_chunk.y - entity_chunk.y).abs() <= 1
                             && (player_pos.x - entity_pos.x).abs() < 5.0
@@ -1628,6 +1633,12 @@ impl World {
                             && (player_pos.z - entity_pos.z).abs() < 5.0
                             && player_bb.intersects(&entity_bb)
                         {
+                            let Ok(transition) = player.respawn_transition.try_read() else {
+                                continue;
+                            };
+                            if *transition != *generation || player.world().uuid != self.uuid {
+                                continue;
+                            }
                             entity.on_player_collision(player);
                             break;
                         }
@@ -3892,6 +3903,8 @@ impl World {
 
     #[allow(clippy::too_many_lines)]
     pub async fn respawn_player(self: &Arc<Self>, player: &Arc<Player>, alive: bool) {
+        let mut transition = player.respawn_transition.write().await;
+        *transition = transition.wrapping_add(1);
         let last_pos = player.get_entity().last_pos.load();
         let death_dimension = ResourceLocation::from(player.world().dimension.minecraft_name);
         let death_location = BlockPos(Vector3::new(

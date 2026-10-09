@@ -462,6 +462,8 @@ pub struct Player {
     pub teleport_id_count: AtomicI32,
     /// The pending teleport information, including the teleport ID and target location.
     pub awaiting_teleport: Mutex<Option<(VarInt, Vector3<f64>)>>,
+    /// Respawn generation counter used to invalidate stale state during transitions
+    pub(crate) respawn_transition: tokio::sync::RwLock<u32>,
     /// The coordinates of the chunk section the player is currently watching.
     pub watched_section: AtomicCell<Cylindrical>,
     /// The last time the player performed an action (for idle timeout).
@@ -734,6 +736,7 @@ impl Player {
             gameprofile,
             client,
             awaiting_teleport: Mutex::new(None),
+            respawn_transition: tokio::sync::RwLock::new(0),
             breath_manager: BreathManager::default(),
             // TODO: Load this from previous instance
             hunger_manager: HungerManager::default(),
