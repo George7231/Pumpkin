@@ -1651,6 +1651,10 @@ impl BlockPlacer for ProtoChunk {
     fn add_block_entity(&mut self, nbt: NbtCompound) {
         self.add_block_entity(nbt);
     }
+
+    fn mark_block_for_post_processing(&mut self, position: &BlockPos) {
+        Self::mark_block_for_post_processing(self, position);
+    }
 }
 
 impl GenerationCache for ProtoChunk {

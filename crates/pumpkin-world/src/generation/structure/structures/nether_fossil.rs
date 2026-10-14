@@ -211,6 +211,9 @@ impl NetherFossilPiece {
             };
 
             chunk.set_block_state(world_pos.x, world_pos.y, world_pos.z, final_state);
+            if !self.place_settings.get_known_shape() {
+                chunk.mark_block_for_post_processing(&BlockPos(world_pos));
+            }
         }
     }
 

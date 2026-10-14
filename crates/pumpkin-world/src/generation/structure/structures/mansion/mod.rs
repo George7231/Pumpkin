@@ -310,6 +310,7 @@ impl MansionTemplatePiece {
                 continue;
             };
             chunk.set_block_state(position.x, position.y, position.z, state);
+            chunk.mark_block_for_post_processing(&BlockPos(position));
             Self::place_block_entity(
                 chunk,
                 palette,

@@ -255,6 +255,9 @@ impl IglooPiece {
             };
 
             chunk.set_block_state(world_pos.x, world_pos.y, world_pos.z, final_state);
+            if !self.place_settings.get_known_shape() {
+                chunk.mark_block_for_post_processing(&BlockPos(world_pos));
+            }
 
             let final_block = Block::from_id(final_state.id.to_block_id());
             let block_entity_id =

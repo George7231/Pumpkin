@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 use pumpkin_data::{Mirror, Rotation};
 use pumpkin_util::{
-    math::{block_box::BlockBox, vector3::Vector3},
+    math::{block_box::BlockBox, position::BlockPos, vector3::Vector3},
     random::RandomGenerator,
 };
 
@@ -239,6 +239,9 @@ impl TemplatePiece {
 
             // Place the block
             chunk.set_block_state(world_pos.x, world_pos.y, world_pos.z, state);
+            if !self.place_settings.get_known_shape() {
+                chunk.mark_block_for_post_processing(&BlockPos(world_pos));
+            }
 
             let final_block = pumpkin_data::Block::from_id(state.id.to_block_id());
             let block_entity_id = super::get_block_entity_id(final_block.name);

@@ -353,6 +353,7 @@ impl StructurePieceBase for ShipwreckPiece {
             }
 
             chunk.set_block_state(world_pos.x, world_pos.y, world_pos.z, state);
+            chunk.mark_block_for_post_processing(&BlockPos(world_pos));
 
             let final_block = pumpkin_data::Block::from_id(state.id.to_block_id());
             let block_entity_id =

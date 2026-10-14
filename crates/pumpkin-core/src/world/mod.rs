@@ -6383,7 +6383,9 @@ impl World {
                     self.set_block_state(
                         &position,
                         new_state,
-                        BlockFlags::UPDATE_KNOWN_SHAPE
+                        // Chunks can reach players before their neighbors are ready for this pass.
+                        BlockFlags::NOTIFY_LISTENERS
+                            | BlockFlags::UPDATE_KNOWN_SHAPE
                             | BlockFlags::SKIP_BLOCK_ENTITY_REPLACED_CALLBACK,
                     );
                 }

@@ -34,7 +34,7 @@ use pumpkin_data::BlockStateId;
 use pumpkin_data::Mirror;
 use pumpkin_data::Rotation;
 use pumpkin_nbt::{compound::NbtCompound, tag::NbtTag};
-use pumpkin_util::math::vector3::Vector3;
+use pumpkin_util::math::{position::BlockPos, vector3::Vector3};
 use pumpkin_util::random::{RandomImpl, hash_block_pos, legacy_rand::LegacyRand};
 
 use crate::ProtoChunk;
@@ -61,6 +61,7 @@ pub trait BlockPlacer {
     fn get_block_state(&self, pos: &Vector3<i32>) -> BlockStateId;
     fn set_block_state(&mut self, pos: &Vector3<i32>, state: &BlockState);
     fn add_block_entity(&mut self, nbt: NbtCompound);
+    fn mark_block_for_post_processing(&mut self, position: &BlockPos);
 }
 
 /// Places a template at a world origin with an un-rotated XZ offset.
@@ -217,7 +218,8 @@ pub fn place_template_with_options(
             continue;
         }
 
-        placer.set_block_state(&Vector3::new(wx, wy, wz), state);
+        placer.set_block_state(&world_pos, state);
+        placer.mark_block_for_post_processing(&BlockPos(world_pos));
 
         // Create block entities for interactive blocks (furnaces, chests, etc.)
         let final_block = pumpkin_data::Block::from_id(state.id.to_block_id());
@@ -382,7 +384,66 @@ pub(crate) fn get_block_entity_id(block_name: &str) -> Option<&'static str> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::chunk::palette::BlockPalette;
     use pumpkin_data::Block;
+    use pumpkin_util::math::block_box::BlockBox;
+
+    #[test]
+    fn template_post_processing_respects_chunk_and_structure_void_bounds() {
+        let generator = crate::generation::get_world_gen(
+            pumpkin_util::world_seed::Seed(0),
+            pumpkin_data::dimension::Dimension::OVERWORLD,
+            false,
+            Vec::new(),
+            String::new(),
+        );
+        let mut chunk = ProtoChunk::new(-1, 0, &generator);
+        let mut template = StructureTemplate::default();
+        template.palette.extend(
+            ["minecraft:oak_fence", "minecraft:structure_void"]
+                .map(|name| PaletteEntry::new(name.to_string())),
+        );
+        template.blocks.extend([(3, 0), (4, 0), (0, 1)].map(|(x, state)| TemplateBlock {
+            pos: Vector3::new(x, 0, 0),
+            state,
+            nbt: None,
+        }));
+        template.size = Vector3::new(5, 1, 1);
+
+        // The clipped fence would wrap to x=-16 if the bounds check were missed.
+        for x in [-16, -4] {
+            chunk.set_block_state(x, -17, 8, Block::STONE.default_state);
+        }
+        let bounds = BlockBox::new(-16, -17, 0, -1, -17, 15);
+        place_template(
+            &mut chunk,
+            &template,
+            Vector3::new(-4, -17, 8),
+            (0, 0),
+            Rotation::None,
+            false,
+            false,
+            &[],
+            Some(&bounds),
+        );
+        assert_eq!(
+            chunk.get_block_state(&Vector3::new(-1, -17, 8)),
+            Block::OAK_FENCE.default_state.id
+        );
+        for x in [-16, -4] {
+            assert_eq!(
+                chunk.get_block_state(&Vector3::new(x, -17, 8)),
+                Block::STONE.default_state.id
+            );
+        }
+        let section = (-17 - i32::from(chunk.bottom_y())) as usize / BlockPalette::SIZE;
+        // Local coordinates (15, 15, 8), in the section containing y=-17.
+        assert_eq!(chunk.post_processing[section], [0x8ff]);
+        assert_eq!(
+            chunk.post_processing.iter().map(Vec::len).sum::<usize>(),
+            1
+        );
+    }
 
     struct CollectingPlacer(Vec<BlockStateId>);
 
@@ -396,6 +457,8 @@ mod tests {
         }
 
         fn add_block_entity(&mut self, _nbt: NbtCompound) {}
+
+        fn mark_block_for_post_processing(&mut self, _position: &BlockPos) {}
     }
 
     #[test]

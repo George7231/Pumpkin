@@ -189,7 +189,7 @@ impl CommandExecutor for PlaceJigsawExecutor {
             BlockPos::new(p.x as i32, p.y as i32, p.z as i32)
         });
 
-        let (_piece_count, placer) = {
+        let (_piece_count, mut placer) = {
             let seed = hash_block_pos(block_pos.0.x, block_pos.0.y, block_pos.0.z) as u64;
             let random = RandomGenerator::Legacy(LegacyRand::from_seed(seed));
             let world_gen = context.world().level.world_gen();
@@ -286,7 +286,7 @@ impl CommandExecutor for PlaceStructureExecutor {
 
         let seed = hash_block_pos(block_pos.0.x, block_pos.0.y, block_pos.0.z) as u64;
 
-        let (_piece_count, placer) = {
+        let (_piece_count, mut placer) = {
             let world_gen = context.world().level.world_gen();
             let settings = NoiseSettings::from_dimension(world_gen.dimension());
 
@@ -676,6 +676,18 @@ fn apply_delta(
                 }
                 idx += 1;
             }
+        }
+    }
+    for (section_index, positions) in chunk.post_processing.iter().enumerate() {
+        for &packed in positions {
+            let packed = i32::from(packed);
+            placer.mark_block_for_post_processing(&BlockPos::new(
+                (cx << 4) + (packed & 15),
+                i32::from(chunk.bottom_y())
+                    + section_index as i32 * CHUNK_DIM
+                    + ((packed >> 4) & 15),
+                (cz << 4) + ((packed >> 8) & 15),
+            ));
         }
     }
 }
