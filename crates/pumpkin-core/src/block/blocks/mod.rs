@@ -99,6 +99,7 @@ pub mod falling;
 pub mod grass_block;
 pub mod ice;
 pub mod infested;
+pub mod liquid;
 pub mod mud;
 pub mod netherrack;
 pub mod nylium;
