@@ -12,11 +12,33 @@ pub(super) struct ActivePlayerArea {
 pub(super) struct ActiveChunkTracker {
     pub players: FxHashMap<Uuid, ActivePlayerArea>,
     pub loaded_active_chunks: FxHashSet<Vector2<i32>>,
+    pub pending_post_processing: FxHashSet<Vector2<i32>>,
     watcher_counts: FxHashMap<Vector2<i32>, u32>,
     forced_chunks: FxHashSet<Vector2<i32>>,
 }
 
 impl ActiveChunkTracker {
+    pub fn take_post_processing_chunks(
+        &mut self,
+        active_chunks: &FxHashSet<Vector2<i32>>,
+        is_full: impl Fn(Vector2<i32>) -> bool,
+    ) -> Vec<Vector2<i32>> {
+        let mut ready = Vec::new();
+        // Vanilla makeChunkTickable waits for the surrounding full chunks.
+        self.pending_post_processing.retain(|pos| {
+            if !active_chunks.contains(pos)
+                || !pumpkin_data::chunk_view_lut::get_chebyshev_square(1)
+                    .iter()
+                    .all(|&(dx, dz)| is_full(pos.add_raw(i32::from(dx), i32::from(dz))))
+            {
+                return true;
+            }
+            ready.push(*pos);
+            false
+        });
+        ready
+    }
+
     fn add_chunk(
         &mut self,
         pos: Vector2<i32>,
@@ -148,6 +170,46 @@ mod tests {
             center: Vector2::new(x, z),
             simulation_distance,
         }
+    }
+
+    #[test]
+    fn post_processing_waits_for_activation_and_all_surrounding_chunks() {
+        let center = Vector2::new(0, 0);
+        let corner = Vector2::new(-1, -1);
+        let mut tracker = ActiveChunkTracker::default();
+        tracker.pending_post_processing.insert(center);
+        let mut active = FxHashSet::default();
+        let mut loaded = FxHashSet::default();
+        for x in -1..=1 {
+            for z in -1..=1 {
+                loaded.insert(Vector2::new(x, z));
+            }
+        }
+
+        assert!(
+            tracker
+                .take_post_processing_chunks(&active, |pos| loaded.contains(&pos))
+                .is_empty()
+        );
+        active.insert(center);
+        loaded.remove(&corner);
+        assert!(
+            tracker
+                .take_post_processing_chunks(&active, |pos| loaded.contains(&pos))
+                .is_empty()
+        );
+        assert!(tracker.pending_post_processing.contains(&center));
+
+        loaded.insert(corner);
+        assert_eq!(
+            tracker.take_post_processing_chunks(&active, |pos| loaded.contains(&pos)),
+            vec![center]
+        );
+        assert!(
+            tracker
+                .take_post_processing_chunks(&active, |pos| loaded.contains(&pos))
+                .is_empty()
+        );
     }
 
     #[test]

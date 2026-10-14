@@ -20,6 +20,21 @@ use crate::{
     },
 };
 
+// StructurePiece.BLOCKS_NEEDING_POST_PROCESSING, separate from the state predicate.
+const BLOCKS_NEEDING_POST_PROCESSING: [BlockId; 11] = [
+    BlockId::NETHER_BRICK_FENCE,
+    BlockId::TORCH,
+    BlockId::WALL_TORCH,
+    BlockId::OAK_FENCE,
+    BlockId::SPRUCE_FENCE,
+    BlockId::DARK_OAK_FENCE,
+    BlockId::ACACIA_FENCE,
+    BlockId::BIRCH_FENCE,
+    BlockId::JUNGLE_FENCE,
+    BlockId::LADDER,
+    BlockId::IRON_BARS,
+];
+
 pub mod buried_treasure;
 pub mod desert_pyramid;
 pub mod end_city;
@@ -458,9 +473,9 @@ impl StructurePiece {
         //     world.schedule_fluid_tick(&block_pos, fluid_state.fluid(), 0);
         // }
 
-        // if block.needs_post_processing() {
-        //     world.mark_block_for_post_processing(&block_pos);
-        // }
+        if BLOCKS_NEEDING_POST_PROCESSING.contains(&block.id.to_block_id()) {
+            world.mark_block_for_post_processing(&BlockPos(block_pos));
+        }
     }
 
     /// Reorients a chest block state based on solid render neighbors, matching vanilla `StructurePiece.reorient`.

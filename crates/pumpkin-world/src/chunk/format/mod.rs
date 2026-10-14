@@ -428,6 +428,25 @@ impl ChunkData {
             .cloned()
             .unwrap_or_default();
 
+        let mut post_processing = vec![Vec::new(); section_count];
+        if let Some(sections) = root_tag.get_list("PostProcessing") {
+            for (index, section) in sections.iter().take(section_count).enumerate() {
+                if let pumpkin_nbt::tag::NbtTag::List(positions) = section {
+                    post_processing[index] = positions
+                        .iter()
+                        .filter_map(|position| match position {
+                            pumpkin_nbt::tag::NbtTag::Short(packed)
+                                if (0..BlockPalette::VOLUME as i16).contains(packed) =>
+                            {
+                                Some(*packed)
+                            }
+                            _ => None,
+                        })
+                        .collect();
+                }
+            }
+        }
+
         Ok(Self {
             section,
             heightmap: std::sync::Mutex::new(heightmaps),
@@ -437,6 +456,7 @@ impl ChunkData {
             dirty: AtomicBool::new(false),
             block_ticks: ChunkTickScheduler::from_iter(block_ticks),
             fluid_ticks: ChunkTickScheduler::from_iter(fluid_ticks),
+            post_processing: std::sync::Mutex::new(post_processing),
             pending_block_entities: std::sync::Mutex::new(block_entities),
             light_engine: std::sync::Mutex::new(light_engine),
             light_populated: AtomicBool::new(light_correct),
@@ -601,6 +621,21 @@ impl ChunkData {
             sections_list.push(NbtTag::Compound(section_comp));
         }
         root_compound.put_list("sections", sections_list);
+
+        let post_processing = self
+            .post_processing
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        root_compound.put_list(
+            "PostProcessing",
+            post_processing
+                .iter()
+                .map(|positions| {
+                    NbtTag::List(positions.iter().copied().map(NbtTag::Short).collect())
+                })
+                .collect(),
+        );
+        drop(post_processing);
 
         let mut block_ticks_list = Vec::new();
         for tick in self.block_ticks.to_vec() {

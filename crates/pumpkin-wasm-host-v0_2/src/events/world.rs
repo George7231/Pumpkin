@@ -80,6 +80,7 @@ impl ToFromWasmEvent for ChunkLoad {
                     z: data.chunk_z,
                     block_ticks: pumpkin_world::tick::scheduler::ChunkTickScheduler::default(),
                     fluid_ticks: pumpkin_world::tick::scheduler::ChunkTickScheduler::default(),
+                    post_processing: std::sync::Mutex::default(),
                     pending_block_entities: std::sync::Mutex::new(
                         std::collections::HashMap::default(),
                     ),
@@ -133,6 +134,7 @@ impl ToFromWasmEvent for ChunkSave {
                     z: data.chunk_z,
                     block_ticks: pumpkin_world::tick::scheduler::ChunkTickScheduler::default(),
                     fluid_ticks: pumpkin_world::tick::scheduler::ChunkTickScheduler::default(),
+                    post_processing: std::sync::Mutex::default(),
                     pending_block_entities: std::sync::Mutex::new(
                         std::collections::HashMap::default(),
                     ),
@@ -182,6 +184,7 @@ impl ToFromWasmEvent for ChunkSend {
                     z: data.chunk_z,
                     block_ticks: pumpkin_world::tick::scheduler::ChunkTickScheduler::default(),
                     fluid_ticks: pumpkin_world::tick::scheduler::ChunkTickScheduler::default(),
+                    post_processing: std::sync::Mutex::default(),
                     pending_block_entities: std::sync::Mutex::new(
                         std::collections::HashMap::default(),
                     ),

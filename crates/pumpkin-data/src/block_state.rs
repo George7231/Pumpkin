@@ -144,6 +144,24 @@ impl BlockState {
         self.state_flags & HAS_ANALOG_OUTPUT_SIGNAL != 0
     }
 
+    /// Returns whether generation queues this state for neighbor and fluid updates.
+    #[must_use]
+    pub const fn should_post_process(&self) -> bool {
+        self.state_flags & HAS_POST_PROCESSING != 0
+    }
+
+    /// Returns the position generation must reconcile for this state.
+    #[must_use]
+    pub fn get_post_process_pos(&self, position: BlockPos) -> Option<BlockPos> {
+        if !self.should_post_process() {
+            None
+        } else if self.state_flags & POST_PROCESS_ABOVE != 0 {
+            Some(position.up())
+        } else {
+            Some(position)
+        }
+    }
+
     ///`isFaceSturdy()` in Java!
     #[must_use]
     pub const fn is_side_solid(&self, side: BlockDirection) -> bool {
@@ -363,6 +381,8 @@ const HAS_RANDOM_TICKS: u16 = 1 << 9;
 const IS_SOLID_RENDER: u16 = 1 << 10;
 const CAN_OCCLUDE: u16 = 1 << 11;
 const HAS_ANALOG_OUTPUT_SIGNAL: u16 = 1 << 12;
+const HAS_POST_PROCESSING: u16 = 1 << 13;
+const POST_PROCESS_ABOVE: u16 = 1 << 14;
 
 // side_flags
 const DOWN_SIDE_SOLID: u8 = 1 << 0;

@@ -74,6 +74,11 @@ pub trait GenerationCache: HeightLimitView + BlockAccessor {
     fn get_block_state(&self, pos: &Vector3<i32>) -> BlockStateId;
     fn get_fluid_and_fluid_state(&self, position: &Vector3<i32>) -> (Fluid, FluidState);
     fn set_block_state(&mut self, pos: &Vector3<i32>, block_state: &BlockState);
+    fn mark_block_for_post_processing(&mut self, position: &BlockPos) {
+        if let Some(chunk) = self.get_chunk_mut(position.0.x >> 4, position.0.z >> 4) {
+            chunk.mark_block_for_post_processing(position);
+        }
+    }
     fn add_block_entity(&mut self, pos: &Vector3<i32>, nbt: NbtCompound);
     fn top_motion_blocking_block_height_exclusive(&self, x: i32, z: i32) -> i32;
     fn top_motion_blocking_block_no_leaves_height_exclusive(&self, x: i32, z: i32) -> i32;
@@ -147,6 +152,7 @@ pub struct ProtoChunk {
     pub pending_block_entities: Vec<NbtCompound>,
     pending_structure_entities: Vec<NbtCompound>,
     pub fluid_ticks: Vec<ScheduledTick<&'static Fluid>>,
+    pub post_processing: Vec<Vec<i16>>,
 }
 
 pub struct TerrainCache {
@@ -259,6 +265,7 @@ impl ProtoChunk {
             pending_block_entities: Vec::new(),
             pending_structure_entities: Vec::new(),
             fluid_ticks: Vec::new(),
+            post_processing: vec![Vec::new(); section_count],
         }
     }
 
@@ -367,6 +374,16 @@ impl ProtoChunk {
                         as i16;
             }
         }
+
+        proto_chunk.post_processing = chunk_data
+            .post_processing
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone();
+        proto_chunk.post_processing.resize_with(
+            usize::from(proto_chunk.height) / BlockPalette::SIZE,
+            Vec::new,
+        );
 
         let saved_stage = StagedChunkEnum::from(chunk_data.status);
         proto_chunk.stage = saved_stage;
@@ -587,7 +604,23 @@ impl ProtoChunk {
                 .reserve_exact(section_end - self.flat_block_map.len());
             self.flat_block_map.resize(section_end, BlockStateId::AIR);
         }
+        let position = BlockPos::new(x, y, z);
+        if let Some(post_process_pos) = block_state.get_post_process_pos(position) {
+            self.mark_block_for_post_processing(&post_process_pos);
+        }
         self.flat_block_map[index] = block_state.id;
+    }
+
+    /// Records a block for neighbor and fluid updates after generation.
+    pub fn mark_block_for_post_processing(&mut self, position: &BlockPos) {
+        let local_y = position.0.y - i32::from(self.bottom_y);
+        if local_y < 0 || local_y >= i32::from(self.height) {
+            return;
+        }
+        let packed =
+            ((position.0.x & 15) | ((position.0.y & 15) << 4) | ((position.0.z & 15) << 8)) as i16;
+        let positions = &mut self.post_processing[local_y as usize / BlockPalette::SIZE];
+        positions.push(packed);
     }
 
     #[inline]

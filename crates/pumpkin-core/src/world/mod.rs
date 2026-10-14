@@ -434,7 +434,7 @@ impl World {
         }
     }
 
-    pub fn update_active_chunks(&self) {
+    pub fn update_active_chunks(self: &Arc<Self>) {
         let sim_dist = self.server.upgrade().map_or(10, |s| {
             s.advanced_config.networking.java.simulation_distance.get()
         }) as i32;
@@ -488,11 +488,13 @@ impl World {
         for pos in newly_active {
             if self.level.is_chunk_loaded(&pos) && tracker.loaded_active_chunks.insert(pos) {
                 self.migrate_pending_block_entities(pos);
+                tracker.pending_post_processing.insert(pos);
             }
         }
         for change in self.level.loaded_chunk_changes() {
             match change {
                 pumpkin_world::level::LoadedChunkChange::Loaded(pos) => {
+                    tracker.pending_post_processing.insert(pos);
                     if active_chunks.contains(&pos)
                         && self.level.is_chunk_loaded(&pos)
                         && tracker.loaded_active_chunks.insert(pos)
@@ -503,6 +505,7 @@ impl World {
                 pumpkin_world::level::LoadedChunkChange::Unloaded(pos) => {
                     if !self.level.is_chunk_loaded(&pos) {
                         tracker.loaded_active_chunks.remove(&pos);
+                        tracker.pending_post_processing.remove(&pos);
                     }
                 }
             }
@@ -517,8 +520,19 @@ impl World {
             }
         }
         let spawnable_chunks = tracker.loaded_active_chunks.len() as i32;
+        let post_processing_chunks = tracker.take_post_processing_chunks(&active_chunks, |pos| {
+            self.level
+                .read_chunk_sync(&pos, |chunk| {
+                    chunk.status == pumpkin_data::chunk::ChunkStatus::Full
+                })
+                .unwrap_or(false)
+        });
         drop(active_chunks);
         drop(tracker);
+
+        for pos in post_processing_chunks {
+            self.run_post_processing(pos);
+        }
 
         self.spawn_state.store(Arc::new(SpawnState::new(
             spawnable_chunks,
@@ -6319,6 +6333,61 @@ impl World {
             self.level.read_chunk_sync(&chunk_pos, |chunk| {
                 chunk.mark_dirty(true);
             });
+        }
+    }
+
+    fn run_post_processing(self: &Arc<Self>, chunk_pos: Vector2<i32>) {
+        let Some(chunk) = self.level.read_chunk_sync(&chunk_pos, Arc::clone) else {
+            return;
+        };
+        if chunk.status != pumpkin_data::chunk::ChunkStatus::Full {
+            return;
+        }
+        let sections = std::mem::take(
+            &mut *chunk
+                .post_processing
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner),
+        );
+        if sections.iter().all(Vec::is_empty) {
+            return;
+        }
+        chunk.dirty.store(true, Ordering::Relaxed);
+        for (section_index, positions) in sections.into_iter().enumerate() {
+            for packed in positions {
+                let packed = i32::from(packed);
+                let position = BlockPos::new(
+                    (chunk.x << 4) + (packed & 15),
+                    chunk.section.min_y + section_index as i32 * 16 + ((packed >> 4) & 15),
+                    (chunk.z << 4) + ((packed >> 8) & 15),
+                );
+                let state_id = self.get_block_state_id(&position);
+                let fluid = self.get_fluid(&position);
+                if let Some(behavior) = self.block_registry.get_pumpkin_fluid(fluid.id) {
+                    behavior.on_scheduled_tick(self, fluid, &position);
+                }
+                let block = Block::from_state_id(state_id);
+                if block == &Block::WATER || block == &Block::LAVA {
+                    // LevelChunk.postProcessGeneration also runs LiquidBlock.tick.
+                    if let Some(behavior) = self.block_registry.get_pumpkin_block(block.id) {
+                        behavior.on_scheduled_tick(OnScheduledTickArgs {
+                            world: self,
+                            block,
+                            position: &position,
+                        });
+                    }
+                } else {
+                    let new_state = self
+                        .block_registry
+                        .post_process_state(self, &position, state_id);
+                    self.set_block_state(
+                        &position,
+                        new_state,
+                        BlockFlags::UPDATE_KNOWN_SHAPE
+                            | BlockFlags::SKIP_BLOCK_ENTITY_REPLACED_CALLBACK,
+                    );
+                }
+            }
         }
     }
 

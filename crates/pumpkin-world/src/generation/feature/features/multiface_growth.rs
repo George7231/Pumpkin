@@ -100,6 +100,7 @@ impl MultifaceGrowthFeature {
 
                 let state_id = props.to_state_id(block);
                 chunk.set_block_state(&pos.0, BlockState::from_id(state_id));
+                chunk.mark_block_for_post_processing(&pos);
                 return true;
             }
         }
