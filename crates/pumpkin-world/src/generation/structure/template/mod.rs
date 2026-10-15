@@ -403,11 +403,13 @@ mod tests {
             ["minecraft:oak_fence", "minecraft:structure_void"]
                 .map(|name| PaletteEntry::new(name.to_string())),
         );
-        template.blocks.extend([(3, 0), (4, 0), (0, 1)].map(|(x, state)| TemplateBlock {
-            pos: Vector3::new(x, 0, 0),
-            state,
-            nbt: None,
-        }));
+        template
+            .blocks
+            .extend([(3, 0), (4, 0), (0, 1)].map(|(x, state)| TemplateBlock {
+                pos: Vector3::new(x, 0, 0),
+                state,
+                nbt: None,
+            }));
         template.size = Vector3::new(5, 1, 1);
 
         // The clipped fence would wrap to x=-16 if the bounds check were missed.
@@ -439,10 +441,7 @@ mod tests {
         let section = (-17 - i32::from(chunk.bottom_y())) as usize / BlockPalette::SIZE;
         // Local coordinates (15, 15, 8), in the section containing y=-17.
         assert_eq!(chunk.post_processing[section], [0x8ff]);
-        assert_eq!(
-            chunk.post_processing.iter().map(Vec::len).sum::<usize>(),
-            1
-        );
+        assert_eq!(chunk.post_processing.iter().map(Vec::len).sum::<usize>(), 1);
     }
 
     struct CollectingPlacer(Vec<BlockStateId>);
