@@ -21,13 +21,14 @@ use crate::{
 };
 
 // StructurePiece.BLOCKS_NEEDING_POST_PROCESSING, separate from the state predicate.
-const BLOCKS_NEEDING_POST_PROCESSING: [BlockId; 11] = [
+const BLOCKS_NEEDING_POST_PROCESSING: [BlockId; 12] = [
     BlockId::NETHER_BRICK_FENCE,
     BlockId::TORCH,
     BlockId::WALL_TORCH,
     BlockId::OAK_FENCE,
     BlockId::SPRUCE_FENCE,
     BlockId::DARK_OAK_FENCE,
+    BlockId::PALE_OAK_FENCE,
     BlockId::ACACIA_FENCE,
     BlockId::BIRCH_FENCE,
     BlockId::JUNGLE_FENCE,
