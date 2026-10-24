@@ -3,23 +3,30 @@ use pumpkin_data::fluid::Fluid;
 use pumpkin_data::{BlockDirection, BlockState, BlockStateId};
 use pumpkin_macros::pumpkin_block_from_tag;
 
+use crate::block::simple_waterlogged::SimpleWaterloggedBlock;
 use crate::block::{
-    BlockBehaviour, BlockIsReplacing, CanPlaceLiquidArgs, CanUpdateAtArgs, OnPlaceArgs,
-    PathComputationType, PlaceLiquidArgs,
+    BlockBehaviour, BlockIsReplacing, CanPlaceLiquidArgs, CanUpdateAtArgs, LiquidBlockContainer,
+    OnPlaceArgs, PathComputationType, PlaceLiquidArgs,
 };
 
 #[pumpkin_block_from_tag("minecraft:slabs")]
 pub struct SlabBlock;
 
-impl BlockBehaviour for SlabBlock {
+impl LiquidBlockContainer for SlabBlock {
     fn place_liquid(&self, args: PlaceLiquidArgs<'_>) -> bool {
         SlabProperties::from_state_id(args.state_id).r#type != SlabType::Double
-            && crate::block::simple_waterlogged::place_liquid(args)
+            && SimpleWaterloggedBlock.place_liquid(args)
     }
 
     fn can_place_liquid(&self, args: CanPlaceLiquidArgs<'_>) -> bool {
         args.fluid == &Fluid::WATER
             && SlabProperties::from_state_id(args.state_id).r#type != SlabType::Double
+    }
+}
+
+impl BlockBehaviour for SlabBlock {
+    fn as_liquid_block_container(&self) -> Option<&dyn LiquidBlockContainer> {
+        Some(self)
     }
 
     fn on_place(&self, args: OnPlaceArgs<'_>) -> BlockStateId {

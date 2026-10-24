@@ -11,7 +11,11 @@ use pumpkin_world::tick::TickPriority;
 use pumpkin_world::world::BlockAccessor;
 use pumpkin_world::world::BlockFlags;
 
-use crate::block::{GetStateForNeighborUpdateArgs, OnScheduledTickArgs, PlaceLiquidArgs};
+use crate::block::simple_waterlogged::SimpleWaterloggedBlock;
+use crate::block::{
+    CanPlaceLiquidArgs, GetStateForNeighborUpdateArgs, LiquidBlockContainer, OnScheduledTickArgs,
+    PlaceLiquidArgs,
+};
 use crate::{
     block::{
         BlockIsReplacing,
@@ -47,7 +51,11 @@ impl CandleBlock {
     }
 }
 
-impl BlockBehaviour for CandleBlock {
+impl LiquidBlockContainer for CandleBlock {
+    fn can_place_liquid(&self, args: CanPlaceLiquidArgs<'_>) -> bool {
+        SimpleWaterloggedBlock.can_place_liquid(args)
+    }
+
     fn place_liquid(&self, args: PlaceLiquidArgs<'_>) -> bool {
         let mut properties = CandleLikeProperties::from_state_id(args.state_id);
         if properties.waterlogged || args.fluid != &Fluid::WATER {
@@ -70,6 +78,12 @@ impl BlockBehaviour for CandleBlock {
             TickPriority::Normal,
         );
         true
+    }
+}
+
+impl BlockBehaviour for CandleBlock {
+    fn as_liquid_block_container(&self) -> Option<&dyn LiquidBlockContainer> {
+        Some(self)
     }
 
     fn on_place(&self, args: OnPlaceArgs<'_>) -> BlockStateId {

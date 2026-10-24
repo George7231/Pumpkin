@@ -5,17 +5,24 @@ use pumpkin_world::world::BlockAccessor;
 
 use crate::block::{
     BlockBehaviour, CanPlaceAtArgs, CanPlaceLiquidArgs, GetStateForNeighborUpdateArgs,
+    LiquidBlockContainer, PlaceLiquidArgs,
     blocks::plant::{PlantBlockBase, seagrass::supports_seagrass},
 };
 #[pumpkin_block("minecraft:tall_seagrass")]
 pub struct TallSeaGrassBlock;
-impl BlockBehaviour for TallSeaGrassBlock {
-    fn is_liquid_block_container(&self) -> bool {
-        true
-    }
-
+impl LiquidBlockContainer for TallSeaGrassBlock {
     fn can_place_liquid(&self, _args: CanPlaceLiquidArgs<'_>) -> bool {
         false
+    }
+
+    fn place_liquid(&self, _args: PlaceLiquidArgs<'_>) -> bool {
+        false
+    }
+}
+
+impl BlockBehaviour for TallSeaGrassBlock {
+    fn as_liquid_block_container(&self) -> Option<&dyn LiquidBlockContainer> {
+        Some(self)
     }
 
     fn can_place_at(&self, args: CanPlaceAtArgs<'_>) -> bool {

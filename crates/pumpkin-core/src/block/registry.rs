@@ -204,11 +204,13 @@ use super::BlockIsReplacing;
 use super::blocks::plant::crop::gourds::attached_stem::AttachedStemBlock;
 use super::blocks::plant::crop::gourds::stem::StemBlock;
 use super::fluid::FluidBehaviour;
+use super::simple_waterlogged::SimpleWaterloggedBlock;
 use super::{
-    AttackArgs, BrokenArgs, CanPlaceAtArgs, CanPlaceLiquidArgs, CanUpdateAtArgs,
+    AttackArgs, BrokenArgs, BucketPickup, CanPlaceAtArgs, CanPlaceLiquidArgs, CanUpdateAtArgs,
     EmitsRedstonePowerArgs, ExplodeArgs, GetRedstonePowerArgs, GetStateForNeighborUpdateArgs,
-    NormalUseArgs, OnNeighborUpdateArgs, OnPlaceArgs, OnStateReplacedArgs, OnSyncedBlockEventArgs,
-    PickupFluidArgs, PlaceLiquidArgs, PlacedArgs, PlayerPlacedArgs, PrepareArgs, UseWithItemArgs,
+    LiquidBlockContainer, NormalUseArgs, OnNeighborUpdateArgs, OnPlaceArgs, OnStateReplacedArgs,
+    OnSyncedBlockEventArgs, PickupFluidArgs, PlaceLiquidArgs, PlacedArgs, PlayerPlacedArgs,
+    PrepareArgs, UseWithItemArgs,
 };
 use crate::block::blocks::blast_furnace::BlastFurnaceBlock;
 use crate::block::blocks::chain::ChainBlock;
@@ -1619,10 +1621,27 @@ impl BlockRegistry {
 
     #[must_use]
     pub fn is_liquid_block_container(&self, block: &Block) -> bool {
-        block.is_waterloggable()
-            || self
-                .get_pumpkin_block(block.id)
-                .is_some_and(|pumpkin_block| pumpkin_block.is_liquid_block_container())
+        self.get_liquid_block_container(block).is_some()
+    }
+
+    fn get_liquid_block_container(&self, block: &Block) -> Option<&dyn LiquidBlockContainer> {
+        self.get_pumpkin_block(block.id)
+            .and_then(|pumpkin_block| pumpkin_block.as_liquid_block_container())
+            .or_else(|| {
+                block
+                    .is_waterloggable()
+                    .then_some(&SimpleWaterloggedBlock as &dyn LiquidBlockContainer)
+            })
+    }
+
+    fn get_bucket_pickup(&self, block: &Block) -> Option<&dyn BucketPickup> {
+        self.get_pumpkin_block(block.id)
+            .and_then(|pumpkin_block| pumpkin_block.as_bucket_pickup())
+            .or_else(|| {
+                block
+                    .is_waterloggable()
+                    .then_some(&SimpleWaterloggedBlock as &dyn BucketPickup)
+            })
     }
 
     #[must_use]
@@ -1640,28 +1659,21 @@ impl BlockRegistry {
 
     #[must_use]
     pub fn can_place_liquid(&self, block: &Block, args: CanPlaceLiquidArgs<'_>) -> bool {
-        self.is_liquid_block_container(block)
-            && self.get_pumpkin_block(block.id).map_or_else(
-                || super::simple_waterlogged::can_place_liquid(args),
-                |pumpkin_block| pumpkin_block.can_place_liquid(args),
-            )
+        self.get_liquid_block_container(block)
+            .is_some_and(|container| container.can_place_liquid(args))
     }
 
     /// Removes fluid from the block and returns the filled bucket item for the caller to give.
     #[must_use]
     pub fn pickup_fluid(&self, args: PickupFluidArgs<'_>) -> Option<&'static Item> {
-        self.get_pumpkin_block(args.block.id).map_or_else(
-            || super::simple_waterlogged::pickup_fluid(args),
-            |pumpkin_block| pumpkin_block.pickup_fluid(args),
-        )
+        self.get_bucket_pickup(args.block)
+            .and_then(|pickup| pickup.pickup_fluid(args))
     }
 
     #[must_use]
     pub fn place_liquid(&self, args: PlaceLiquidArgs<'_>) -> bool {
-        self.get_pumpkin_block(args.block.id).map_or_else(
-            || super::simple_waterlogged::place_liquid(args),
-            |pumpkin_block| pumpkin_block.place_liquid(args),
-        )
+        self.get_liquid_block_container(args.block)
+            .is_some_and(|container| container.place_liquid(args))
     }
 }
 

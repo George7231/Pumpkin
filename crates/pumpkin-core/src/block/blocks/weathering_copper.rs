@@ -31,9 +31,9 @@ use crate::block::blocks::trapdoor::TrapDoorBlock;
 use crate::block::entities::copper_golem_statue::CopperGolemStatueBlockEntity;
 use crate::block::registry::BlockActionResult;
 use crate::block::{
-    BlockBehaviour, BlockMetadata, BrokenArgs, CanPlaceAtArgs, CanPlaceLiquidArgs, CanUpdateAtArgs,
-    GetComparatorOutputArgs, GetStateForNeighborUpdateArgs, NormalUseArgs, OnNeighborUpdateArgs,
-    OnPlaceArgs, OnStateReplacedArgs, PathComputationType, PlaceLiquidArgs, PlacedArgs,
+    BlockBehaviour, BlockMetadata, BrokenArgs, CanPlaceAtArgs, CanUpdateAtArgs,
+    GetComparatorOutputArgs, GetStateForNeighborUpdateArgs, LiquidBlockContainer, NormalUseArgs,
+    OnNeighborUpdateArgs, OnPlaceArgs, OnStateReplacedArgs, PathComputationType, PlacedArgs,
     RandomTickArgs, UseWithItemArgs,
 };
 use crate::entity::EntityBase;
@@ -890,12 +890,8 @@ impl BlockMetadata for WeatheringCopperSlabBlock {
 }
 
 impl BlockBehaviour for WeatheringCopperSlabBlock {
-    fn place_liquid(&self, args: PlaceLiquidArgs<'_>) -> bool {
-        SlabBlock.place_liquid(args)
-    }
-
-    fn can_place_liquid(&self, args: CanPlaceLiquidArgs<'_>) -> bool {
-        SlabBlock.can_place_liquid(args)
+    fn as_liquid_block_container(&self) -> Option<&dyn LiquidBlockContainer> {
+        Some(&SlabBlock)
     }
 
     fn on_place(&self, args: OnPlaceArgs<'_>) -> BlockStateId {

@@ -14,11 +14,12 @@ use pumpkin_world::tick::TickPriority;
 use pumpkin_world::world::BlockFlags;
 
 use crate::block::entities::campfire::CampfireBlockEntity;
+use crate::block::simple_waterlogged::SimpleWaterloggedBlock;
 use crate::{
     block::{
-        BlockBehaviour, BlockIsReplacing, GetStateForNeighborUpdateArgs, OnEntityCollisionArgs,
-        OnPlaceArgs, PathComputationType, PlaceLiquidArgs, PlacedArgs, UseWithItemArgs,
-        registry::BlockActionResult,
+        BlockBehaviour, BlockIsReplacing, CanPlaceLiquidArgs, GetStateForNeighborUpdateArgs,
+        LiquidBlockContainer, OnEntityCollisionArgs, OnPlaceArgs, PathComputationType,
+        PlaceLiquidArgs, PlacedArgs, UseWithItemArgs, registry::BlockActionResult,
     },
     entity::EntityBase,
 };
@@ -36,7 +37,11 @@ impl CampfireBlock {
     }
 }
 
-impl BlockBehaviour for CampfireBlock {
+impl LiquidBlockContainer for CampfireBlock {
+    fn can_place_liquid(&self, args: CanPlaceLiquidArgs<'_>) -> bool {
+        SimpleWaterloggedBlock.can_place_liquid(args)
+    }
+
     fn place_liquid(&self, args: PlaceLiquidArgs<'_>) -> bool {
         let mut properties = CampfireLikeProperties::from_state_id(args.state_id);
         if properties.waterlogged || args.fluid != &Fluid::WATER {
@@ -64,6 +69,12 @@ impl BlockBehaviour for CampfireBlock {
             TickPriority::Normal,
         );
         true
+    }
+}
+
+impl BlockBehaviour for CampfireBlock {
+    fn as_liquid_block_container(&self) -> Option<&dyn LiquidBlockContainer> {
+        Some(self)
     }
 
     fn placed(&self, args: PlacedArgs<'_>) {
