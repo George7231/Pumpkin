@@ -387,10 +387,16 @@ impl BlockBehaviour for SignBlock {
         let is_wall_sign = args.block.name.contains("wall");
 
         if args.player.is_none() {
+            if is_hanging {
+                // WallHangingSignBlock inherits Block::canSurvive.
+                return is_wall_sign
+                    || args
+                        .block_accessor
+                        .get_block_state(&args.position.up())
+                        .is_center_solid(BlockDirection::Down);
+            }
             let support_dir = if is_wall_sign {
                 get_wall_support_direction(args.block, args.state.id)
-            } else if is_hanging {
-                Some(BlockDirection::Up)
             } else {
                 Some(BlockDirection::Down)
             };
@@ -398,22 +404,10 @@ impl BlockBehaviour for SignBlock {
                 return false;
             };
             let support_pos = args.position.offset(dir.to_offset());
-            let (block, state) = args.block_accessor.get_block_and_state(&support_pos);
-            if !is_hanging {
-                return state.is_solid();
-            }
-            let is_permissive = block.has_tag(&pumpkin_data::tag::Block::MINECRAFT_LEAVES)
-                || block.has_tag(&pumpkin_data::tag::Block::MINECRAFT_ALL_SIGNS);
-            return match dir {
-                BlockDirection::Up => {
-                    crate::block::can_support_center(
-                        args.block_accessor,
-                        &support_pos,
-                        BlockDirection::Down,
-                    ) || is_permissive
-                }
-                _ => state.is_side_solid(dir.opposite()) || is_permissive,
-            };
+            return args
+                .block_accessor
+                .get_block_state(&support_pos)
+                .is_solid();
         }
 
         let clicked_face = args
