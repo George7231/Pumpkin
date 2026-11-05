@@ -64,23 +64,40 @@ pub struct EnchantmentsImpl {
 }
 impl EnchantmentsImpl {
     pub fn read_data(data: &NbtTag) -> Option<Self> {
-        let compound = data.extract_compound()?;
-        let data = if let Some(NbtTag::Compound(levels)) = compound.child_tags.get("levels") {
-            &levels.child_tags
-        } else {
-            &compound.child_tags
-        };
-        let mut enc = Vec::with_capacity(data.len());
-        for (name, level) in data {
-            let enchantment = Enchantment::from_name(name.as_ref())
-                .or_else(|| Enchantment::from_name(&format!("minecraft:{name}")))?;
-            enc.push((enchantment, level.extract_int()?));
-        }
         Some(Self {
-            enchantment: Cow::from(enc),
+            enchantment: read_enchantment_levels(data, false)?,
         })
     }
 }
+
+pub(super) fn read_enchantment_levels(
+    data: &NbtTag,
+    recover_invalid_levels: bool,
+) -> Option<Cow<'static, [(&'static Enchantment, i32)]>> {
+    const LEVEL_RANGE: std::ops::RangeInclusive<i32> = 1..=255;
+
+    let compound = data.extract_compound()?;
+    let data = if let Some(NbtTag::Compound(levels)) = compound.child_tags.get("levels") {
+        &levels.child_tags
+    } else {
+        &compound.child_tags
+    };
+    let mut enchantments = Vec::with_capacity(data.len());
+    for (name, level) in data {
+        let enchantment = Enchantment::from_name(name.as_ref())
+            .or_else(|| Enchantment::from_name(&format!("minecraft:{name}")))?;
+        let level = level.extract_int()?;
+        if !LEVEL_RANGE.contains(&level) {
+            if recover_invalid_levels {
+                continue;
+            }
+            return None;
+        }
+        enchantments.push((enchantment, level));
+    }
+    Some(Cow::from(enchantments))
+}
+
 impl DataComponentImpl for EnchantmentsImpl {
     fn write_data(&self) -> NbtTag {
         let mut data = NbtCompound::new();
@@ -1213,20 +1230,8 @@ pub struct StoredEnchantmentsImpl {
 }
 impl StoredEnchantmentsImpl {
     pub fn read_data(data: &NbtTag) -> Option<Self> {
-        let compound = data.extract_compound()?;
-        let data = if let Some(NbtTag::Compound(levels)) = compound.child_tags.get("levels") {
-            &levels.child_tags
-        } else {
-            &compound.child_tags
-        };
-        let mut enc = Vec::with_capacity(data.len());
-        for (name, level) in data {
-            let enchantment = Enchantment::from_name(name.as_ref())
-                .or_else(|| Enchantment::from_name(&format!("minecraft:{name}")))?;
-            enc.push((enchantment, level.extract_int()?));
-        }
         Some(Self {
-            enchantment: Cow::from(enc),
+            enchantment: read_enchantment_levels(data, false)?,
         })
     }
 }

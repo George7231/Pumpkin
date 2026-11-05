@@ -5,7 +5,7 @@ use crate::data_component_impl::{
     BlocksAttacksImpl, ConsumableImpl, CustomDataImpl, DamageImpl, DamageResistantImpl,
     DataComponentImpl, EnchantmentsImpl, IDSet, MaxDamageImpl, MaxStackSizeImpl, Rarity,
     RarityImpl, SwingAnimationImpl, ToolImpl, UnbreakableImpl, UseCooldownImpl, get, get_mut,
-    read_data,
+    read_saved_data,
 };
 
 use crate::item::Item;
@@ -866,7 +866,9 @@ impl ItemStack {
                 } else {
                     let id = DataComponent::try_from_name(name)?;
                     if id.is_persistent() {
-                        item_stack.patch.push((id, Some(read_data(id, data)?)));
+                        item_stack
+                            .patch
+                            .push((id, Some(read_saved_data(id, data)?)));
                     }
                 }
             }
@@ -1598,6 +1600,38 @@ mod tests {
         assert!(DataComponent::Damage.is_persistent());
         assert!(DataComponent::CustomName.is_persistent());
         assert!(DataComponent::Enchantments.is_persistent());
+    }
+
+    #[test]
+    fn saved_items_keep_valid_enchantments_when_an_invalid_level_is_removed() {
+        for (item, component) in [
+            ("minecraft:trident", DataComponent::Enchantments),
+            (
+                "minecraft:enchanted_book",
+                DataComponent::StoredEnchantments,
+            ),
+        ] {
+            let mut enchantments = NbtCompound::new();
+            enchantments.put_int("minecraft:riptide", 2000);
+            enchantments.put_int("minecraft:unbreaking", 3);
+            let mut components = NbtCompound::new();
+            components.put_compound(component.to_name(), enchantments);
+            let mut saved = NbtCompound::new();
+            saved.put_string("id", item.to_string());
+            saved.put_int("count", 1);
+            saved.put_compound("components", components);
+
+            let stack = ItemStack::read_item_stack(&saved).unwrap();
+            let mut resaved = NbtCompound::new();
+            stack.write_item_stack(&mut resaved);
+            let enchantments = resaved
+                .get_compound("components")
+                .unwrap()
+                .get_compound(component.to_name())
+                .unwrap();
+            assert_eq!(enchantments.get_int("minecraft:riptide"), None);
+            assert_eq!(enchantments.get_int("minecraft:unbreaking"), Some(3));
+        }
     }
 
     #[test]

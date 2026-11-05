@@ -171,6 +171,21 @@ mod test {
     }
 
     #[test]
+    fn enchantment_components_reject_levels_outside_vanilla_range() {
+        for (item, component) in [
+            ("trident", "enchantments"),
+            ("enchanted_book", "stored_enchantments"),
+        ] {
+            for level in [0, 256, 2000] {
+                assert!(parse(&format!("{item}[{component}={{riptide:{level}}}]")).is_err());
+            }
+            for level in [1, 255] {
+                assert!(parse(&format!("{item}[{component}={{riptide:{level}}}]")).is_ok());
+            }
+        }
+    }
+
+    #[test]
     fn bad_component_input_errors_instead_of_looping() {
         assert!(parse("salmon_spawn_egg[salmon/size]").is_err());
         assert!(parse("salmon_spawn_egg[not/a_component=1]").is_err());

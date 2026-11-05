@@ -579,6 +579,29 @@ pub use food::*;
 pub use utility::*;
 
 #[must_use]
+pub(crate) fn read_saved_data(
+    id: DataComponent,
+    data: &NbtTag,
+) -> Option<Box<dyn DataComponentImpl>> {
+    // Older Pumpkin saves can contain levels that disconnect Java clients.
+    match id {
+        DataComponent::Enchantments => Some(
+            EnchantmentsImpl {
+                enchantment: combat::read_enchantment_levels(data, true)?,
+            }
+            .to_dyn(),
+        ),
+        DataComponent::StoredEnchantments => Some(
+            StoredEnchantmentsImpl {
+                enchantment: combat::read_enchantment_levels(data, true)?,
+            }
+            .to_dyn(),
+        ),
+        _ => read_data(id, data),
+    }
+}
+
+#[must_use]
 pub fn read_data(id: DataComponent, data: &NbtTag) -> Option<Box<dyn DataComponentImpl>> {
     match id {
         DataComponent::MaxStackSize => Some(MaxStackSizeImpl::read_data(data)?.to_dyn()),
