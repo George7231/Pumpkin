@@ -559,6 +559,9 @@ impl Level {
         for pos in active_chunks {
             if let Some(chunk) = self.loaded_chunks.get(pos) {
                 let chunk = chunk.value();
+                if chunk.has_pending_post_processing() {
+                    continue;
+                }
                 let chunk_x_base = chunk.x * 16;
                 let chunk_z_base = chunk.z * 16;
                 let section_count = chunk.section.count;
@@ -614,6 +617,9 @@ impl Level {
         for pos in scheduled_chunk_pos {
             if let Some(chunk) = self.loaded_chunks.get(&pos) {
                 let chunk = chunk.value();
+                if chunk.has_pending_post_processing() {
+                    continue;
+                }
                 ticks.block_ticks.append(&mut chunk.block_ticks.step_tick());
                 ticks.fluid_ticks.append(&mut chunk.fluid_ticks.step_tick());
 
@@ -908,6 +914,22 @@ impl Level {
 
     pub fn is_chunk_loaded(&self, coordinates: &Vector2<i32>) -> bool {
         self.loaded_chunks.contains_key(coordinates)
+    }
+
+    pub fn is_chunk_ready(&self, coordinates: &Vector2<i32>) -> bool {
+        self.read_chunk_sync(coordinates, |chunk| !chunk.has_pending_post_processing())
+            .unwrap_or(false)
+    }
+
+    pub fn has_full_chunk_neighborhood(&self, center: Vector2<i32>) -> bool {
+        pumpkin_data::chunk_view_lut::get_chebyshev_square(1)
+            .iter()
+            .all(|&(dx, dz)| {
+                self.read_chunk_sync(&center.add_raw(i32::from(dx), i32::from(dz)), |chunk| {
+                    chunk.status == pumpkin_data::chunk::ChunkStatus::Full
+                })
+                .unwrap_or(false)
+            })
     }
 
     pub fn read_chunk_sync<R, F: Fn(&SyncChunk) -> R>(

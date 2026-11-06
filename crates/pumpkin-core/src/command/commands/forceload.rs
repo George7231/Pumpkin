@@ -83,8 +83,6 @@ impl CommandExecutor for ForceloadAddExecutor {
             }
         }
 
-        world.update_active_chunks();
-
         let dimension_name = world.dimension.minecraft_name.to_string();
 
         let text = if total_chunks == 1 {
@@ -166,8 +164,6 @@ impl CommandExecutor for ForceloadRemoveExecutor {
             }
         }
 
-        world.update_active_chunks();
-
         let dimension_name = world.dimension.minecraft_name.to_string();
 
         let text = if total_chunks == 1 {
@@ -216,8 +212,6 @@ impl CommandExecutor for ForceloadRemoveAllExecutor {
             forced.clear();
             count
         };
-
-        world.update_active_chunks();
 
         let dimension_name = world.dimension.minecraft_name.to_string();
 

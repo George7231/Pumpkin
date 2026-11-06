@@ -405,11 +405,12 @@ impl ProtoChunk {
             }
         }
 
-        proto_chunk.post_processing = chunk_data
-            .post_processing
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .clone();
+        proto_chunk.post_processing.clone_from(
+            &chunk_data
+                .post_processing
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner),
+        );
         proto_chunk.post_processing.resize_with(
             usize::from(proto_chunk.height) / BlockPalette::SIZE,
             Vec::new,

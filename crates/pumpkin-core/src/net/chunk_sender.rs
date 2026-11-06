@@ -194,7 +194,11 @@ impl ChunkSender {
                     break;
                 }
 
-                if let Some(chunk) = level.loaded_chunks.get(&pos) {
+                if let Some(chunk) = level
+                    .loaded_chunks
+                    .get(&pos)
+                    .filter(|chunk| !chunk.has_pending_post_processing())
+                {
                     ready.push(PreparedChunk {
                         position: pos,
                         chunk: chunk.value().clone(),
@@ -211,7 +215,10 @@ impl ChunkSender {
 
                 let pos = Vector2::new(center.x + i32::from(dx), center.y + i32::from(dy));
                 if self.pending_chunks.contains(&pos)
-                    && let Some(chunk) = level.loaded_chunks.get(&pos)
+                    && let Some(chunk) = level
+                        .loaded_chunks
+                        .get(&pos)
+                        .filter(|chunk| !chunk.has_pending_post_processing())
                 {
                     ready.push(PreparedChunk {
                         position: pos,
@@ -226,7 +233,11 @@ impl ChunkSender {
                     if ready.len() >= quota_limit {
                         break;
                     }
-                    if let Some(chunk) = level.loaded_chunks.get(&pos) {
+                    if let Some(chunk) = level
+                        .loaded_chunks
+                        .get(&pos)
+                        .filter(|chunk| !chunk.has_pending_post_processing())
+                    {
                         ready.push(PreparedChunk {
                             position: pos,
                             chunk: chunk.value().clone(),

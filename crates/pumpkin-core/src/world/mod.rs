@@ -444,7 +444,7 @@ impl World {
         }
     }
 
-    pub fn update_active_chunks(self: &Arc<Self>) {
+    fn update_active_chunks(self: &Arc<Self>) {
         let sim_dist = self.server.upgrade().map_or(10, |s| {
             s.advanced_config.networking.java.simulation_distance.get()
         }) as i32;
@@ -463,7 +463,6 @@ impl World {
             .write()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         let mut newly_active = Vec::new();
-        let mut migrations = Vec::new();
         let mut current_players = FxHashSet::default();
 
         let spectators_generate_chunks =
@@ -500,56 +499,52 @@ impl World {
             &mut newly_active,
         );
 
-        for pos in newly_active {
-            if self.level.is_chunk_loaded(&pos) && tracker.loaded_active_chunks.insert(pos) {
-                migrations.push(pos);
-                tracker.pending_post_processing.insert(pos);
-            }
-        }
+        let mut candidates: FxHashSet<_> = newly_active.into_iter().collect();
         for change in self.level.loaded_chunk_changes() {
             match change {
                 pumpkin_world::level::LoadedChunkChange::Loaded(pos) => {
-                    tracker.pending_post_processing.insert(pos);
-                    if active_chunks.contains(&pos)
-                        && self.level.is_chunk_loaded(&pos)
-                        && tracker.loaded_active_chunks.insert(pos)
-                    {
-                        migrations.push(pos);
-                    }
+                    tracker.loaded_active_chunks.remove(&pos);
+                    // A newly full chunk may be the last missing neighbor for any of these.
+                    candidates.extend(
+                        pumpkin_data::chunk_view_lut::get_chebyshev_square(1)
+                            .iter()
+                            .map(|&(dx, dz)| pos.add_raw(i32::from(dx), i32::from(dz))),
+                    );
                 }
                 pumpkin_world::level::LoadedChunkChange::Unloaded(pos) => {
-                    if !self.level.is_chunk_loaded(&pos) {
-                        tracker.loaded_active_chunks.remove(&pos);
-                        tracker.pending_post_processing.remove(&pos);
-                    }
+                    tracker.loaded_active_chunks.remove(&pos);
                 }
             }
         }
-        let mut pending_migrations = FxHashSet::default();
-        while let Some(pos) = self.pending_block_entity_migrations.pop() {
-            pending_migrations.insert(pos);
-        }
-        for pos in pending_migrations {
-            if active_chunks.contains(&pos) && self.level.is_chunk_loaded(&pos) {
-                migrations.push(pos);
-            }
-        }
-        let spawnable_chunks = tracker.loaded_active_chunks.len() as i32;
-        let post_processing_chunks = tracker.take_post_processing_chunks(&active_chunks, |pos| {
-            self.level
-                .read_chunk_sync(&pos, |chunk| {
-                    chunk.status == pumpkin_data::chunk::ChunkStatus::Full
-                })
-                .unwrap_or(false)
-        });
+        let active = Arc::clone(&active_chunks);
         drop(active_chunks);
         drop(tracker);
+
+        let mut newly_ready = Vec::new();
+        for pos in candidates {
+            if let Some(chunk) = self.level.read_chunk_sync(&pos, Arc::clone)
+                && self.prepare_chunk(pos, &chunk)
+                && active.contains(&pos)
+            {
+                newly_ready.push(pos);
+            }
+        }
+        let mut tracker = self
+            .active_chunk_tracker
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        newly_ready.retain(|&pos| tracker.loaded_active_chunks.insert(pos));
+        let spawnable_chunks = tracker.loaded_active_chunks.len() as i32;
+        drop(tracker);
+
+        let mut migrations: FxHashSet<_> = newly_ready.into_iter().collect();
+        while let Some(pos) = self.pending_block_entity_migrations.pop() {
+            if active.contains(&pos) && self.level.is_chunk_ready(&pos) {
+                migrations.insert(pos);
+            }
+        }
         for pos in migrations {
             self.migrate_pending_block_entities(pos);
-        }
-
-        for pos in post_processing_chunks {
-            self.run_post_processing(pos);
         }
 
         self.spawn_state.store(Arc::new(SpawnState::new(
@@ -1665,7 +1660,7 @@ impl World {
                 if !active_chunks.contains(&entity_chunk) {
                     return None;
                 }
-                if !level_for_entities.is_chunk_loaded(&entity_chunk) {
+                if !level_for_entities.is_chunk_ready(&entity_chunk) {
                     return None;
                 }
                 Some((entity, entity_chunk))
@@ -1794,13 +1789,17 @@ impl World {
         let mut block_entities: Vec<Arc<dyn BlockEntity>> = Vec::new();
         if self.block_entities.len() < active_chunks.len() {
             for chunk_block_entities in &self.block_entities {
-                if active_chunks.contains(chunk_block_entities.key()) {
+                if active_chunks.contains(chunk_block_entities.key())
+                    && self.level.is_chunk_ready(chunk_block_entities.key())
+                {
                     block_entities.extend(chunk_block_entities.values().cloned());
                 }
             }
         } else {
             for chunk_pos in active_chunks.iter() {
-                if let Some(chunk_block_entities) = self.block_entities.get(chunk_pos) {
+                if self.level.is_chunk_ready(chunk_pos)
+                    && let Some(chunk_block_entities) = self.block_entities.get(chunk_pos)
+                {
                     block_entities.extend(chunk_block_entities.values().cloned());
                 }
             }
@@ -2251,7 +2250,9 @@ impl World {
         if !spawn_list.is_empty() {
             let mut spawning_chunks = Vec::new();
             for pos in active_chunks.iter() {
-                if let Some(chunk) = self.level.read_chunk_sync(pos, std::clone::Clone::clone) {
+                if let Some(chunk) = self.level.read_chunk_sync(pos, Arc::clone)
+                    && !chunk.has_pending_post_processing()
+                {
                     spawning_chunks.push((*pos, chunk));
                 }
             }
@@ -2281,7 +2282,9 @@ impl World {
             .par_iter()
             .with_min_len(INHABITED_TIME_BATCH_SIZE)
             .for_each(|pos| {
-                if let Some(chunk) = loaded_chunks.get(pos) {
+                if let Some(chunk) = loaded_chunks.get(pos)
+                    && !chunk.has_pending_post_processing()
+                {
                     chunk.inhabited_time.fetch_add(1, Relaxed);
                 }
             });
@@ -2627,7 +2630,7 @@ impl World {
         if max_y != f64::NEG_INFINITY {
             return max_y;
         }
-        // No collision at pos — check block below
+        // No collision at pos â€” check block below
         let below = BlockPos(Vector3::new(pos.0.x, pos.0.y - 1, pos.0.z));
         let below_state = self.get_block_state(&below);
         let below_max_y = below_state
@@ -2811,7 +2814,7 @@ impl World {
     /// already advanced to this number in `ClientLevel.tickTime()`. Sending the
     /// post-increment value, or a clock snapshot, makes `getGameTime()` hold
     /// for two client ticks, so `Entity.limitPistonMovement` does not reset
-    /// `pistonDeltas` and clips the second honey/piston step at ±0.51.
+    /// `pistonDeltas` and clips the second honey/piston step at Â±0.51.
     pub fn force_game_time_synchronization(&self, server: &Server) {
         let level_time = self
             .level_time
@@ -3603,20 +3606,28 @@ impl World {
             .level
             .get_or_fetch_chunk(center_chunk, std::clone::Clone::clone)
             .await;
-        if let Some(server) = self.server.upgrade() {
-            let mut event =
-                crate::plugin::world::chunk_send::ChunkSend::new(player.world(), chunk.clone());
-            server.plugin_manager.fire(&server, &mut event).await;
-            if event.cancelled {
-                return;
+        if chunk.has_pending_post_processing() {
+            player
+                .chunk_sender
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .enqueue_chunk(center_chunk);
+        } else {
+            if let Some(server) = self.server.upgrade() {
+                let mut event =
+                    crate::plugin::world::chunk_send::ChunkSend::new(player.world(), chunk.clone());
+                server.plugin_manager.fire(&server, &mut event).await;
+                if event.cancelled {
+                    return;
+                }
             }
+            client.send_chunks(&[chunk]).await;
+            player
+                .chunk_sender
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .mark_sent_out_of_band(center_chunk);
         }
-        client.send_chunks(&[chunk]).await;
-        player
-            .chunk_sender
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .mark_sent_out_of_band(center_chunk);
 
         let velocity = player.living_entity.entity.velocity.load();
 
@@ -4504,7 +4515,6 @@ impl World {
         target_world.send_world_info(player);
         target_world.send_center_chunk(player).await;
 
-        // Send teleport packet after at least the center chunk was delivered
         player.request_teleport(position, yaw, pitch);
 
         target_world.refresh_java_player_for_bedrock(player).await;
@@ -5053,7 +5063,7 @@ impl World {
             .add_entity(&(player.clone() as Arc<dyn EntityBase>), self);
     }
 
-    /// Sends the centre chunk ahead of the teleport and records it as held.
+    /// Sends the centre chunk ahead of the teleport if generation updates have finished.
     pub async fn send_center_chunk(&self, player: &Player) {
         let ClientPlatform::Java(java_client) = player.client.as_ref() else {
             return;
@@ -5063,6 +5073,14 @@ impl World {
             .level
             .get_or_fetch_chunk(center_chunk, std::clone::Clone::clone)
             .await;
+        if chunk.has_pending_post_processing() {
+            player
+                .chunk_sender
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .enqueue_chunk(center_chunk);
+            return;
+        }
         java_client.send_chunks(&[chunk]).await;
         player
             .chunk_sender
@@ -6830,23 +6848,46 @@ impl World {
         }
     }
 
-    fn run_post_processing(self: &Arc<Self>, chunk_pos: Vector2<i32>) {
-        let Some(chunk) = self.level.read_chunk_sync(&chunk_pos, Arc::clone) else {
-            return;
-        };
-        if chunk.status != pumpkin_data::chunk::ChunkStatus::Full {
-            return;
+    fn prepare_chunk(
+        self: &Arc<Self>,
+        pos: Vector2<i32>,
+        chunk: &pumpkin_world::level::SyncChunk,
+    ) -> bool {
+        if chunk.has_pending_post_processing() {
+            if !self.level.has_full_chunk_neighborhood(pos) {
+                return false;
+            }
+            self.run_post_processing(chunk);
+            self.migrate_pending_block_entities(pos);
+            // Sending and ticking both see the positions until the pass has finished.
+            let completed = self.level.read_chunk_sync(&pos, |current| {
+                if !Arc::ptr_eq(current, chunk) {
+                    return false;
+                }
+                chunk
+                    .post_processing
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .clear();
+                chunk.mark_dirty(true);
+                true
+            });
+            if completed != Some(true) {
+                return false;
+            }
         }
-        let sections = std::mem::take(
-            &mut *chunk
-                .post_processing
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner),
-        );
-        if sections.iter().all(Vec::is_empty) {
-            return;
+        if chunk.block_ticks.has_ticks() || chunk.fluid_ticks.has_ticks() {
+            self.level.chunks_with_scheduled_ticks.insert(pos);
         }
-        chunk.dirty.store(true, Ordering::Relaxed);
+        true
+    }
+
+    fn run_post_processing(self: &Arc<Self>, chunk: &pumpkin_world::chunk::ChunkData) {
+        let sections = chunk
+            .post_processing
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone();
         for (section_index, positions) in sections.into_iter().enumerate() {
             for packed in positions {
                 let packed = i32::from(packed);
@@ -6855,34 +6896,38 @@ impl World {
                     chunk.section.min_y + section_index as i32 * 16 + ((packed >> 4) & 15),
                     (chunk.z << 4) + ((packed >> 8) & 15),
                 );
-                let state_id = self.get_block_state_id(&position);
-                let fluid = self.get_fluid(&position);
-                if let Some(behavior) = self.block_registry.get_pumpkin_fluid(fluid.id) {
-                    behavior.on_scheduled_tick(self, fluid, &position);
-                }
-                let block = Block::from_state_id(state_id);
-                if block == &Block::WATER || block == &Block::LAVA {
-                    // LevelChunk.postProcessGeneration also runs LiquidBlock.tick.
-                    if let Some(behavior) = self.block_registry.get_pumpkin_block(block.id) {
-                        behavior.on_scheduled_tick(OnScheduledTickArgs {
-                            world: self,
-                            block,
-                            position: &position,
-                        });
-                    }
-                } else {
-                    let new_state = self
-                        .block_registry
-                        .post_process_state(self, &position, state_id);
-                    self.set_block_state(
-                        &position,
-                        new_state,
-                        // Chunks can reach players before their neighbors are ready for this pass.
-                        BlockFlags::NOTIFY_LISTENERS
-                            | BlockFlags::UPDATE_KNOWN_SHAPE
-                            | BlockFlags::SKIP_BLOCK_ENTITY_REPLACED_CALLBACK,
-                    );
-                }
+                self.post_process_position(&position, false);
+            }
+        }
+    }
+
+    fn post_process_position(self: &Arc<Self>, position: &BlockPos, notify_listeners: bool) {
+        let Some(state_id) = self.get_block_state_id_if_loaded(position) else {
+            return;
+        };
+        let fluid = Self::get_fluid_from_state_id(state_id);
+        if let Some(behavior) = self.block_registry.get_pumpkin_fluid(fluid.id) {
+            behavior.on_scheduled_tick(self, fluid, position);
+        }
+
+        let block = state_id.to_block();
+        if block == &Block::WATER || block == &Block::LAVA {
+            if let Some(behavior) = self.block_registry.get_pumpkin_block(block.id) {
+                behavior.on_scheduled_tick(OnScheduledTickArgs {
+                    world: self,
+                    block,
+                    position,
+                });
+            }
+        } else {
+            let new_state = self
+                .block_registry
+                .post_process_state(self, position, state_id);
+            if new_state != state_id {
+                let mut flags = BlockFlags::UPDATE_KNOWN_SHAPE
+                    | BlockFlags::SKIP_BLOCK_ENTITY_REPLACED_CALLBACK;
+                flags.set(BlockFlags::NOTIFY_LISTENERS, notify_listeners);
+                self.set_block_state_if(position, new_state, flags, |current| current == state_id);
             }
         }
     }
@@ -7997,6 +8042,121 @@ mod tests {
         data.iter()
             .filter_map(|record| record.get_string("id"))
             .collect()
+    }
+
+    #[tokio::test]
+    async fn generation_post_processing_waits_for_last_neighbor() -> Result<(), std::io::Error> {
+        use crate::entity::ai::test_support::world;
+        use crate::net::chunk_sender::ChunkSender;
+        use pumpkin_util::math::vector2::Vector2;
+        use pumpkin_util::version::JavaMinecraftVersion;
+        use pumpkin_world::{
+            chunk::{ChunkData, io::FileIO},
+            tick::TickPriority,
+        };
+        use rustc_hash::FxHashSet;
+        use std::{num::NonZero, sync::atomic::Ordering, time::Duration};
+
+        let folder = tempfile::tempdir()?;
+        let world = world(&folder);
+        let center = Vector2::new(0, 0);
+        let missing = Vector2::new(1, 1);
+        for x in -1..=1 {
+            for z in -1..=1 {
+                let pos = Vector2::new(x, z);
+                if pos != missing {
+                    world
+                        .level
+                        .loaded_chunks
+                        .insert(pos, ChunkData::empty_sync(x, z));
+                }
+            }
+        }
+        world.level.read_chunk_sync(&center, |chunk| {
+            chunk
+                .post_processing
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .push(vec![0]);
+        });
+        world
+            .forced_chunks
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .insert(center);
+        world.level.schedule_block_tick(
+            &Block::STONE,
+            BlockPos::new(0, 64, 0),
+            0,
+            TickPriority::Normal,
+        );
+        let active = FxHashSet::from_iter([center]);
+        let mut sender = ChunkSender::new();
+        sender.enqueue_chunk(center);
+        let view_distance = NonZero::new(2).unwrap_or(NonZero::<u8>::MIN);
+        let version = JavaMinecraftVersion::V_26_3;
+
+        world.update_active_chunks();
+        assert!(!world.level.is_chunk_ready(&center));
+        assert!(world.level.get_tick_data(&active, 0).block_ticks.is_empty());
+        assert!(
+            sender
+                .prepare_batch(&world.level, center, view_distance, 0, version)
+                .is_none()
+        );
+
+        let neighbor = ChunkData::empty_sync(missing.x, missing.y);
+        neighbor.light_populated.store(true, Ordering::Relaxed);
+        neighbor.dirty.store(true, Ordering::Relaxed);
+        world.level.write_chunks(vec![(missing, neighbor)]).await;
+        world.level.chunk_saver.flush_all().await;
+        tokio::time::timeout(
+            Duration::from_secs(10),
+            world.level.get_or_fetch_chunk(missing, |_| ()),
+        )
+        .await?;
+        world.update_active_chunks();
+        assert!(world.level.is_chunk_ready(&center));
+        assert_eq!(world.level.get_tick_data(&active, 0).block_ticks.len(), 1);
+        assert!(
+            sender
+                .prepare_batch(&world.level, center, view_distance, 0, version)
+                .is_some()
+        );
+        world.level.shutdown().await;
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn structure_placement_does_not_drain_generation_post_processing()
+    -> Result<(), std::io::Error> {
+        use super::block_placer::WorldBlockPlacer;
+        use crate::entity::ai::test_support::world;
+        use pumpkin_world::{chunk::ChunkData, generation::structure::template::BlockPlacer};
+
+        let folder = tempfile::tempdir()?;
+        let world = world(&folder);
+        let pos = BlockPos::new(0, 64, 0);
+        let chunk = ChunkData::empty_sync(0, 0);
+        chunk
+            .post_processing
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .push(vec![0]);
+        world
+            .level
+            .loaded_chunks
+            .insert(pos.chunk_position(), chunk.clone());
+
+        let mut placer = WorldBlockPlacer::new(&world);
+        placer.set_block_state(&pos.0, Block::TORCH.default_state);
+        placer.mark_block_for_post_processing(&pos);
+        placer.finalize();
+
+        assert_eq!(world.get_block(&pos), &Block::AIR);
+        assert!(chunk.has_pending_post_processing());
+        world.level.shutdown().await;
+        Ok(())
     }
 
     #[test]

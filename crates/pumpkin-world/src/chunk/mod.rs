@@ -629,6 +629,15 @@ impl ChunkSections {
 }
 
 impl ChunkData {
+    /// Returns whether generation updates must finish before this chunk can tick or be sent.
+    pub fn has_pending_post_processing(&self) -> bool {
+        self.post_processing
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .iter()
+            .any(|section| !section.is_empty())
+    }
+
     #[must_use]
     pub fn empty(x: i32, z: i32) -> Self {
         Self {

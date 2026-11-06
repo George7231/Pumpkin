@@ -95,9 +95,11 @@ pub fn update_position(player: &Arc<Player>) {
         .game_rules
         .spectators_generate_chunks;
 
+    // The tracked cylinder reaches one chunk beyond view distance; allow another
+    // ring of full chunks for generation post-processing at the edge.
     let new_view_level = (!is_spectator || spectators_generate_chunks).then(|| {
         pumpkin_world::chunk_system::ChunkLoading::get_level_from_view_distance(
-            u8::from(view_distance) + 1,
+            u8::from(view_distance) + 2,
         )
     });
 
@@ -105,7 +107,9 @@ pub fn update_position(player: &Arc<Player>) {
         let sim_dist = world.server.upgrade().map_or(10, |s| {
             s.advanced_config.networking.java.simulation_distance.get()
         });
-        pumpkin_world::chunk_system::ChunkLoading::get_level_from_simulation_distance(sim_dist)
+        pumpkin_world::chunk_system::ChunkLoading::get_level_from_simulation_distance(
+            sim_dist.saturating_add(1),
+        )
     });
 
     {
