@@ -1,9 +1,11 @@
+use crate::damage::DamageType;
 use crate::data_component::DataComponent;
 use crate::data_component::DataComponent::Enchantments;
 use crate::data_component_impl::{
-    BlocksAttacksImpl, ConsumableImpl, CustomDataImpl, DamageImpl, DataComponentImpl,
-    EnchantmentsImpl, IDSet, MaxDamageImpl, MaxStackSizeImpl, Rarity, RarityImpl,
-    SwingAnimationImpl, ToolImpl, UnbreakableImpl, UseCooldownImpl, get, get_mut, read_data,
+    BlocksAttacksImpl, ConsumableImpl, CustomDataImpl, DamageImpl, DamageResistantImpl,
+    DataComponentImpl, EnchantmentsImpl, IDSet, MaxDamageImpl, MaxStackSizeImpl, Rarity,
+    RarityImpl, SwingAnimationImpl, ToolImpl, UnbreakableImpl, UseCooldownImpl, get, get_mut,
+    read_data,
 };
 
 use crate::item::Item;
@@ -339,6 +341,19 @@ impl ItemStack {
     #[must_use]
     pub fn is_damageable(&self) -> bool {
         self.get_max_damage().unwrap_or(0) > 0
+    }
+
+    #[must_use]
+    pub fn next_damage_will_break(&self) -> bool {
+        self.is_damageable()
+            && !self.is_unbreakable()
+            && self.get_damage() >= self.get_max_damage().unwrap_or(0) - 1
+    }
+
+    #[must_use]
+    pub fn can_be_hurt_by(&self, damage_type: DamageType) -> bool {
+        self.get_data_component::<DamageResistantImpl>()
+            .is_none_or(|res| damage_type.is_tagged_with(res.res_type.as_str()) != Some(true))
     }
 
     pub fn repair_item(&mut self, amount: i32) -> i32 {
@@ -1591,7 +1606,7 @@ mod tests {
         // Add a transient component and a persistent component
         stack.patch.push((
             DataComponent::AdditionalTradeCost,
-            Some(crate::data_component_impl::AdditionalTradeCostImpl.to_dyn()),
+            Some(crate::data_component_impl::AdditionalTradeCostImpl { cost: 0 }.to_dyn()),
         ));
         stack.patch.push((
             DataComponent::Damage,

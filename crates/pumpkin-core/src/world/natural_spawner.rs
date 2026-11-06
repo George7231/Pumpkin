@@ -187,11 +187,15 @@ impl LocalMobCapCalculator {
 struct PointCharge(BlockPos, f64);
 
 impl PointCharge {
+    /// Change in spawn potential this charge adds at `pos`.
+    ///
+    /// Widen before subtracting, like vanilla's `Vec3i.distSqr` does with `i2d`;
+    /// multiplying in `i32` overflows past ~46341 blocks before any cast runs.
     fn get_potential_change(&self, pos: &BlockPos) -> f64 {
-        let dx = self.0.0.x - pos.0.x;
-        let dy = self.0.0.y - pos.0.y;
-        let dz = self.0.0.z - pos.0.z;
-        let dist_sq = (dx * dx + dy * dy + dz * dz) as f64;
+        let dx = self.0.0.x as f64 - pos.0.x as f64;
+        let dy = self.0.0.y as f64 - pos.0.y as f64;
+        let dz = self.0.0.z as f64 - pos.0.z as f64;
+        let dist_sq = dx * dx + dy * dy + dz * dz;
         if dist_sq == 0.0 {
             f64::INFINITY
         } else {
@@ -365,7 +369,8 @@ impl SpawnState {
         let active_chunks = world
             .active_chunks
             .read()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone();
         for entity in entities.load().iter() {
             if let Some(mob) = entity.get_mob()
                 && (mob.get_mob_entity().persistence_required.load(Relaxed)
@@ -612,13 +617,23 @@ pub fn spawn_mobs_for_chunk_generation(
                         fx,
                         f64::from(pos.0.y),
                         fz,
-                    )) && check_spawn_rules(entity_type, world, &check_pos, false)
-                    {
+                    )) && check_spawn_rules(
+                        entity_type,
+                        world,
+                        &check_pos,
+                        false,
+                        crate::entity::mob::spawn::EntitySpawnReason::ChunkGeneration,
+                    ) {
                         let entity = from_type(entity_type, spawn_pos_f64, world, Uuid::new_v4());
                         entity
                             .get_entity()
                             .set_rotation(rand::random::<f32>() * 360.0, 0.0);
-                        group_data = finalize_spawn(&entity, world, group_data);
+                        group_data = finalize_spawn(
+                            &entity,
+                            world,
+                            crate::entity::mob::spawn::EntitySpawnReason::ChunkGeneration,
+                            group_data,
+                        );
                         world.spawn_entity_non_save(entity);
                         success = true;
                     }
@@ -822,16 +837,24 @@ pub fn spawn_category_for_position(
                     });
 
                     if is_valid_for_mob {
-                        group_data = finalize_spawn(&entity, world, group_data);
+                        group_data = finalize_spawn(
+                            &entity,
+                            world,
+                            crate::entity::mob::spawn::EntitySpawnReason::Natural,
+                            group_data,
+                        );
                         cluster_size += 1;
                         group_size += 1;
+                        let max_group_size_reached = entity
+                            .get_mob()
+                            .is_some_and(|mob| mob.is_max_group_size_reached(group_size));
                         batch_buffer.push(entity);
                         spawn_state.after_spawn(entity_type, &check_pos, world);
                         if cluster_size >= entity_type.limit_per_chunk {
                             return batch_buffer;
                         }
 
-                        if entity_type.resource_name == "tropical_fish" && group_size >= 8 {
+                        if max_group_size_reached {
                             break;
                         }
                     }
@@ -980,7 +1003,13 @@ pub fn is_valid_spawn_position_for_type(
     if !is_spawn_position_ok(world, block_pos, entity_type) {
         return false;
     }
-    if !check_spawn_rules(entity_type, world, block_pos, is_thundering) {
+    if !check_spawn_rules(
+        entity_type,
+        world,
+        block_pos,
+        is_thundering,
+        crate::entity::mob::spawn::EntitySpawnReason::Natural,
+    ) {
         return false;
     }
     if !world.is_space_empty(entity_type.get_spawn_bounding_box(
@@ -1014,7 +1043,7 @@ pub fn is_spawn_position_ok(
                 return false;
             }
             let above_state = world.get_block_state(&block_pos.up());
-            world.get_fluid(block_pos).has_tag(&MINECRAFT_WATER) && !above_state.is_full_cube()
+            world.get_fluid(block_pos).has_tag(&MINECRAFT_WATER) && !above_state.is_solid_block()
         }
         SpawnLocation::OnGround => {
             if !within_bounds {
@@ -1055,7 +1084,7 @@ pub fn is_spawn_position_ok_cache(
 
             state.is_liquid()
                 && Block::from_state_id(state.id).has_tag(&MINECRAFT_WATER)
-                && !above_state.is_full_cube()
+                && !above_state.is_solid_block()
         }
         SpawnLocation::OnGround => {
             let down_pos = block_pos.down().0;
@@ -1095,7 +1124,10 @@ pub fn is_valid_empty_spawn_block(
 }
 
 #[must_use]
-fn is_valid_spawn_floor(state: &'static BlockState, entity_type: &'static EntityType) -> bool {
+pub(crate) fn is_valid_spawn_floor(
+    state: &'static BlockState,
+    entity_type: &'static EntityType,
+) -> bool {
     match Block::from_state_id(state.id).spawn_floor_predicate() {
         SpawnFloorPredicate::Default => {
             state.is_side_solid(BlockDirection::Up) && state.luminance < 14
@@ -1133,6 +1165,22 @@ fn is_burning_block(block: &Block) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn potential_change_is_finite_beyond_i32_range() {
+        let origin = BlockPos::new(0, 64, 0);
+        for (far, distance) in [
+            (BlockPos::new(46_342, 64, 0), 46_342.0),
+            (
+                BlockPos::new(40_000, 64, 40_000),
+                40_000f64.hypot(40_000f64),
+            ),
+        ] {
+            let change = PointCharge(far, 1.0).get_potential_change(&origin);
+
+            assert_eq!(change, 1.0 / distance, "wrong potential for {far:?}");
+        }
+    }
 
     #[test]
     fn vanilla_spawn_floor_predicates_are_preserved() {

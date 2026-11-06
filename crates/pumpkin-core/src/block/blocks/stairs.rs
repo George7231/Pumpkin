@@ -29,11 +29,8 @@ impl BlockBehaviour for StairBlock {
             BlockDirection::Up => Half::Top,
             BlockDirection::Down => Half::Bottom,
             _ => match args.use_item_on.cursor_pos.y {
-                0.0..0.5 => Half::Bottom,
-                0.5..1.0 => Half::Top,
-
-                // This cannot happen normally
-                _ => Half::Bottom,
+                0.0..=0.5 => Half::Bottom,
+                _ => Half::Top,
             },
         };
 
@@ -60,6 +57,7 @@ impl BlockBehaviour for StairBlock {
                 TickPriority::Normal,
             );
         }
+
         if args.direction.is_horizontal() {
             stair_props.shape = compute_stair_shape(
                 args.world,
@@ -67,8 +65,10 @@ impl BlockBehaviour for StairBlock {
                 stair_props.facing,
                 stair_props.half,
             );
+            return stair_props.to_state_id(args.block);
         }
-        stair_props.to_state_id(args.block)
+
+        args.state_id
     }
 
     fn rotate(

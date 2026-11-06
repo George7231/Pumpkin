@@ -44,21 +44,14 @@ impl JavaClient {
             }
             Action::LeaveBed => player.wake_up(),
 
-            Action::StartHorseJump | Action::StopHorseJump | Action::OpenVehicleInventory => {
-                debug!("todo");
+            Action::StartHorseJump => player.start_riding_jump(server, command.jump_boost.0),
+            // Releasing the jump key does nothing on any rideable mob.
+            Action::StopHorseJump => {}
+            Action::OpenVehicleInventory => {
+                player.open_vehicle_inventory();
             }
             Action::StartFlyingElytra => {
-                let fall_flying = entity.check_fall_flying();
-                if entity.is_fall_flying() != fall_flying {
-                    let mut event = crate::plugin::api::events::entity::entity_toggle_glide::EntityToggleGlideEvent::new(
-                        entity.entity_id,
-                        fall_flying,
-                    );
-                    server.plugin_manager.fire_blocking(server, &mut event);
-                    if !event.cancelled {
-                        entity.set_fall_flying(event.is_gliding);
-                    }
-                }
+                player.try_start_fall_flying(server);
             }
             // <= 1.21.5
             Action::StartSneaking | Action::StopSneaking => {

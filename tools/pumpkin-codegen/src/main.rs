@@ -52,6 +52,7 @@ mod enchantments;
 mod entity_pose;
 mod entity_status;
 mod entity_type;
+mod entity_variant;
 mod environment_attribute;
 mod flower_pot_transformations;
 mod fluid;
@@ -75,6 +76,7 @@ mod packet;
 mod painting_variant;
 mod particle;
 mod placed_feature;
+mod poi_type;
 mod potion;
 mod potion_brewing;
 mod processor_list;
@@ -90,6 +92,7 @@ mod statistic;
 mod structure_metadata;
 mod structure_template;
 mod structures;
+mod suspicious_effects;
 mod tag;
 mod template_pool;
 mod test_instance;
@@ -171,6 +174,7 @@ pub fn main() {
         (structure_template::build, "structure_template.rs"),
         (test_instance::build, "test_instance.rs"),
         (painting_variant::build, "painting_variant.rs"),
+        (poi_type::build, "poi_type.rs"),
         (context_provider::build, "context_provider.rs"),
         (material_rule::build, "material_rule.rs"),
         (noise_settings::build, "noise_settings.rs"),
@@ -183,6 +187,7 @@ pub fn main() {
             flower_pot_transformations::build,
             "flower_pot_transformations.rs",
         ),
+        (suspicious_effects::build, "suspicious_effects.rs"),
         (recipes::build, "recipes.rs"),
         (enchantments::build, "enchantment.rs"),
         (data_component::build, "data_component.rs"),
@@ -203,6 +208,7 @@ pub fn main() {
         (map_color::build, "map_color.rs"),
         (map_decoration::build, "map_decoration.rs"),
         (dye_color::build, "dye_color.rs"),
+        (entity_variant::build, "entity_variant.rs"),
         (block_transformer::build, "block_transformer.rs"),
         (trial_spawner::build, "trial_spawner.rs"),
         (banner_pattern::build, "banner_pattern.rs"),
@@ -233,12 +239,10 @@ pub fn main() {
     // e.g. `cargo run -- chest_loot` only regenerates chest_loot.rs.
     let filters: Vec<String> = std::env::args().skip(1).collect();
     if filters.iter().any(|f| f == "wit") {
-        wit::v0_1::main();
         wit::v0_2::main();
         return;
     }
     let build_functions: Vec<_> = if filters.is_empty() {
-        wit::v0_1::main();
         wit::v0_2::main();
         sdk::main();
         build_functions
