@@ -62,13 +62,6 @@ impl DataComponentImpl for AttributeModifiersImpl {
 pub struct EnchantmentsImpl {
     pub enchantment: Cow<'static, [(&'static Enchantment, i32)]>,
 }
-impl EnchantmentsImpl {
-    pub fn read_data(data: &NbtTag) -> Option<Self> {
-        Some(Self {
-            enchantment: read_enchantment_levels(data, false)?,
-        })
-    }
-}
 
 pub(super) fn read_enchantment_levels(
     data: &NbtTag,
@@ -87,13 +80,11 @@ pub(super) fn read_enchantment_levels(
         let enchantment = Enchantment::from_name(name.as_ref())
             .or_else(|| Enchantment::from_name(&format!("minecraft:{name}")))?;
         let level = level.extract_int()?;
-        if !LEVEL_RANGE.contains(&level) {
-            if recover_invalid_levels {
-                continue;
-            }
+        if LEVEL_RANGE.contains(&level) {
+            enchantments.push((enchantment, level));
+        } else if !recover_invalid_levels {
             return None;
         }
-        enchantments.push((enchantment, level));
     }
     Some(Cow::from(enchantments))
 }
@@ -1227,13 +1218,6 @@ impl DataComponentImpl for MobVisibilityImpl {
 #[derive(Clone, Hash, PartialEq, Eq)]
 pub struct StoredEnchantmentsImpl {
     pub enchantment: Cow<'static, [(&'static Enchantment, i32)]>,
-}
-impl StoredEnchantmentsImpl {
-    pub fn read_data(data: &NbtTag) -> Option<Self> {
-        Some(Self {
-            enchantment: read_enchantment_levels(data, false)?,
-        })
-    }
 }
 impl DataComponentImpl for StoredEnchantmentsImpl {
     fn write_data(&self) -> NbtTag {

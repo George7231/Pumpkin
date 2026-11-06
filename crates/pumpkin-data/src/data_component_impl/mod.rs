@@ -584,29 +584,26 @@ pub(crate) fn read_saved_data(
     data: &NbtTag,
 ) -> Option<Box<dyn DataComponentImpl>> {
     // Older Pumpkin saves can contain levels that disconnect Java clients.
-    match id {
-        DataComponent::Enchantments => Some(
-            EnchantmentsImpl {
-                enchantment: combat::read_enchantment_levels(data, true)?,
-            }
-            .to_dyn(),
-        ),
-        DataComponent::StoredEnchantments => Some(
-            StoredEnchantmentsImpl {
-                enchantment: combat::read_enchantment_levels(data, true)?,
-            }
-            .to_dyn(),
-        ),
-        _ => read_data(id, data),
-    }
+    read_component(id, data, true)
 }
 
 #[must_use]
 pub fn read_data(id: DataComponent, data: &NbtTag) -> Option<Box<dyn DataComponentImpl>> {
+    read_component(id, data, false)
+}
+
+fn read_component(
+    id: DataComponent,
+    data: &NbtTag,
+    recover_invalid_enchantment_levels: bool,
+) -> Option<Box<dyn DataComponentImpl>> {
     match id {
         DataComponent::MaxStackSize => Some(MaxStackSizeImpl::read_data(data)?.to_dyn()),
         DataComponent::CustomData => Some(CustomDataImpl::read_data(data)?.to_dyn()),
-        DataComponent::Enchantments => Some(EnchantmentsImpl::read_data(data)?.to_dyn()),
+        DataComponent::Enchantments => {
+            let enchantment = read_enchantment_levels(data, recover_invalid_enchantment_levels)?;
+            Some(EnchantmentsImpl { enchantment }.to_dyn())
+        }
         DataComponent::Damage => Some(DamageImpl::read_data(data)?.to_dyn()),
         DataComponent::MaxDamage => Some(MaxDamageImpl::read_data(data)?.to_dyn()),
         DataComponent::Unbreakable => Some(UnbreakableImpl::read_data(data)?.to_dyn()),
@@ -637,7 +634,8 @@ pub fn read_data(id: DataComponent, data: &NbtTag) -> Option<Box<dyn DataCompone
         }
         DataComponent::DamageType => Some(DamageTypeImpl::read_data(data)?.to_dyn()),
         DataComponent::StoredEnchantments => {
-            Some(StoredEnchantmentsImpl::read_data(data)?.to_dyn())
+            let enchantment = read_enchantment_levels(data, recover_invalid_enchantment_levels)?;
+            Some(StoredEnchantmentsImpl { enchantment }.to_dyn())
         }
         DataComponent::UseCooldown => Some(UseCooldownImpl::read_data(data)?.to_dyn()),
         DataComponent::RepairCost => Some(RepairCostImpl::read_data(data)?.to_dyn()),
@@ -1001,9 +999,9 @@ mod tests {
     fn enchantments_read_data_formats() {
         let mut direct = NbtCompound::new();
         direct.put_int("sharpness", 2);
-        let enc1 = EnchantmentsImpl::read_data(&NbtTag::Compound(direct)).unwrap();
-        assert!(enc1.enchantment[0].0 == &crate::Enchantment::SHARPNESS);
-        assert_eq!(enc1.enchantment[0].1, 2);
+        let enc1 = read_enchantment_levels(&NbtTag::Compound(direct), false).unwrap();
+        assert!(enc1[0].0 == &crate::Enchantment::SHARPNESS);
+        assert_eq!(enc1[0].1, 2);
 
         let mut levels = NbtCompound::new();
         levels.put_int("minecraft:sharpness", 2);
@@ -1011,10 +1009,10 @@ mod tests {
         wrapped
             .child_tags
             .insert("levels".into(), NbtTag::Compound(levels));
-        let enc2 = EnchantmentsImpl::read_data(&NbtTag::Compound(wrapped)).unwrap();
-        assert_eq!(enc2.enchantment.len(), 1);
-        assert!(enc2.enchantment[0].0 == &crate::Enchantment::SHARPNESS);
-        assert_eq!(enc2.enchantment[0].1, 2);
+        let enc2 = read_enchantment_levels(&NbtTag::Compound(wrapped), false).unwrap();
+        assert_eq!(enc2.len(), 1);
+        assert!(enc2[0].0 == &crate::Enchantment::SHARPNESS);
+        assert_eq!(enc2[0].1, 2);
     }
 
     #[test]
